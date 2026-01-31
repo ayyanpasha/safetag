@@ -1,0 +1,57 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+enum ReferralStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model Dealer {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @unique @db.Uuid
+  dealerCode   String     @unique
+  businessName String
+  isApproved   Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  referrals    Referral[]
+  payouts      Payout[]
+}
+
+model Referral {
+  id                String         @id @default(uuid()) @db.Uuid
+  dealerId          String         @db.Uuid
+  dealer            Dealer         @relation(fields: [dealerId], references: [id])
+  referredUserId    String         @db.Uuid
+  subscriptionId    String?        @db.Uuid
+  commissionPercent Float
+  commissionAmount  Int            @default(0)
+  paymentNumber     Int            @default(1)
+  status            ReferralStatus @default(PENDING)
+  createdAt         DateTime       @default(now())
+}
+
+model Payout {
+  id          String       @id @default(uuid()) @db.Uuid
+  dealerId    String       @db.Uuid
+  dealer      Dealer       @relation(fields: [dealerId], references: [id])
+  amount      Int
+  status      PayoutStatus @default(PENDING)
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+}

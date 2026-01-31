@@ -1,0 +1,42 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+enum UserRole {
+  OWNER
+  DEALER
+  ADMIN
+}
+
+model User {
+  id               String   @id @default(uuid()) @db.Uuid
+  phone            String   @unique
+  name             String?
+  email            String?
+  role             UserRole @default(OWNER)
+  emergencyContact String?
+  dndEnabled       Boolean  @default(false)
+  dndStart         String?
+  dndEnd           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("users")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("otp_codes")
+}

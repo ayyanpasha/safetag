@@ -1,0 +1,256 @@
+version: "3.9"
+
+x-service-common: &service-common
+  restart: unless-stopped
+  networks:
+    - safetag
+  environment: &common-env
+    DATABASE_URL: postgresql://safetag:safetag@postgres:5432/safetag
+    REDIS_URL: redis://redis:6379
+    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-default-32-byte-key-change-me!!!}
+    INTERNAL_API_KEY: ${INTERNAL_API_KEY:-internal-secret-change-me}
+    NODE_ENV: ${NODE_ENV:-development}
+
+services:
+  # ─── Infrastructure ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: safetag
+      POSTGRES_PASSWORD: safetag
+      POSTGRES_DB: safetag
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/scripts/init-schemas.sql:/docker-entrypoint-initdb.d/01-init-schemas.sql
+    networks:
+      - safetag
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safetag"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - safetag
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── Gateway ─────────────────────────────────────
+  gateway:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      <<: *common-env
+      PORT: 8080
+      AUTH_SERVICE_URL: http://auth:3001
+      VEHICLE_SERVICE_URL: http://vehicle:3002
+      SHERIFF_SERVICE_URL: http://sheriff:3003
+      COMMUNICATION_SERVICE_URL: http://communication:3004
+      PAYMENT_SERVICE_URL: http://payment:3005
+      AFFILIATE_SERVICE_URL: http://affiliate:3006
+      INCIDENT_SERVICE_URL: http://incident:3007
+    depends_on:
+      auth:
+        condition: service_healthy
+      vehicle:
+        condition: service_healthy
+
+  # ─── Auth Service ────────────────────────────────
+  auth:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/auth/Dockerfile
+    ports:
+      - "${AUTH_PORT:-3001}:3001"
+    environment:
+      <<: *common-env
+      PORT: 3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Vehicle Service ─────────────────────────────
+  vehicle:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/vehicle/Dockerfile
+    ports:
+      - "${VEHICLE_PORT:-3002}:3002"
+    environment:
+      <<: *common-env
+      PORT: 3002
+      PAYMENT_SERVICE_URL: http://payment:3005
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3002/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Sheriff Service ─────────────────────────────
+  sheriff:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/sheriff/Dockerfile
+    ports:
+      - "${SHERIFF_PORT:-3003}:3003"
+    environment:
+      <<: *common-env
+      PORT: 3003
+      VEHICLE_SERVICE_URL: http://vehicle:3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vehicle:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Communication Service ──────────────────────
+  communication:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/communication/Dockerfile
+    ports:
+      - "${COMMUNICATION_PORT:-3004}:3004"
+    environment:
+      <<: *common-env
+      PORT: 3004
+      AUTH_SERVICE_URL: http://auth:3001
+      WHATSAPP_API_URL_SCANNER: ${WHATSAPP_API_URL_SCANNER:-}
+      WHATSAPP_API_URL_OWNER: ${WHATSAPP_API_URL_OWNER:-}
+      WHATSAPP_TOKEN_SCANNER: ${WHATSAPP_TOKEN_SCANNER:-}
+      WHATSAPP_TOKEN_OWNER: ${WHATSAPP_TOKEN_OWNER:-}
+      TURN_SERVER_URL: ${TURN_SERVER_URL:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_CREDENTIAL: ${TURN_CREDENTIAL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3004/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Payment Service ────────────────────────────
+  payment:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    ports:
+      - "${PAYMENT_PORT:-3005}:3005"
+    environment:
+      <<: *common-env
+      PORT: 3005
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3005/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Affiliate Service ──────────────────────────
+  affiliate:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/affiliate/Dockerfile
+    ports:
+      - "${AFFILIATE_PORT:-3006}:3006"
+    environment:
+      <<: *common-env
+      PORT: 3006
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3006/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── Incident Service ───────────────────────────
+  incident:
+    <<: *service-common
+    build:
+      context: .
+      dockerfile: services/incident/Dockerfile
+    ports:
+      - "${INCIDENT_PORT:-3007}:3007"
+    environment:
+      <<: *common-env
+      PORT: 3007
+      AUTH_SERVICE_URL: http://auth:3001
+      COMMUNICATION_SERVICE_URL: http://communication:3004
+      S3_BUCKET: ${S3_BUCKET:-safetag-incidents}
+      S3_REGION: ${S3_REGION:-ap-south-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3007/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pgdata:
+  redisdata:
+
+networks:
+  safetag:
+    driver: bridge

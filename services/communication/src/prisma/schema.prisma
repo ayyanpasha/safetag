@@ -1,0 +1,68 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+enum Channel {
+  WHATSAPP
+  VOIP
+  EMERGENCY
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Conversation {
+  id               String   @id @default(uuid()) @db.Uuid
+  ownerId          String   @db.Uuid
+  scannerSessionId String
+  channel          Channel
+  createdAt        DateTime @default(now())
+
+  messages Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id             String           @id @default(uuid()) @db.Uuid
+  conversationId String           @db.Uuid
+  direction      MessageDirection
+  content        String
+  metadata       Json?
+  sentAt         DateTime         @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@map("messages")
+}
+
+model DndConfig {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @unique @db.Uuid
+  enabled   Boolean @default(false)
+  startTime String  @default("22:00")
+  endTime   String  @default("07:00")
+
+  @@map("dnd_configs")
+}
+
+model QueuedMessage {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  content      String
+  channel      String
+  metadata     Json?
+  scheduledFor DateTime
+  sent         Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@map("queued_messages")
+}

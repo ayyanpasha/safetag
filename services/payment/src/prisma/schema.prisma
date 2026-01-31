@@ -1,0 +1,56 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+enum PlanType {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  YEARLY
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+model Subscription {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @unique @db.Uuid
+  plan                PlanType
+  status              SubStatus @default(TRIALING)
+  razorpaySubId       String?   @unique
+  razorpayCustomerId  String?
+  currentPeriodStart  DateTime
+  currentPeriodEnd    DateTime
+  vehicleLimit        Int       @default(3)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  payments Payment[]
+
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                 String       @id @default(uuid()) @db.Uuid
+  subscriptionId     String       @db.Uuid
+  razorpayPaymentId  String       @unique
+  razorpayOrderId    String
+  amount             Int
+  currency           String       @default("INR")
+  status             String
+  createdAt          DateTime     @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@map("payments")
+}

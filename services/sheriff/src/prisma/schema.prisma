@@ -1,0 +1,33 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ScanSession {
+  id                 String   @id @default(uuid()) @db.Uuid
+  vehicleId          String   @db.Uuid
+  vehicleNumber      String
+  scannerFingerprint String
+  scannerIp          String
+  latitude           Float
+  longitude          Float
+  sessionToken       String   @unique
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  @@map("scan_sessions")
+}
+
+model Blocklist {
+  id          String   @id @default(uuid()) @db.Uuid
+  fingerprint String   @unique
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@map("blocklists")
+}
