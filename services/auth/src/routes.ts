@@ -4,12 +4,14 @@ import {
   createLogger,
   handleError,
   UnauthorizedError,
+  ForbiddenError,
   ValidationError,
   generateAccessToken,
   generateRefreshToken,
   verifyAccessToken,
   verifyRefreshToken,
   publishEvent,
+  redis,
 } from '@safetag/service-utils';
 import {
   OtpSendSchema,
@@ -62,6 +64,24 @@ function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_ATTEMPTS_TTL = 900; // 15 minutes
+
+async function checkOtpAttempts(phone: string): Promise<void> {
+  const key = `auth:otp:attempts:${phone}`;
+  const attempts = await redis.incr(key);
+  if (attempts === 1) {
+    await redis.expire(key, OTP_ATTEMPTS_TTL);
+  }
+  if (attempts > OTP_MAX_ATTEMPTS) {
+    throw new ForbiddenError('Too many OTP attempts. Try again later.');
+  }
+}
+
+async function clearOtpAttempts(phone: string): Promise<void> {
+  await redis.del(`auth:otp:attempts:${phone}`);
+}
+
 // ─── Route Registration ──────────────────────────────────
 
 export function registerRoutes(app: FastifyInstance): void {
@@ -108,6 +128,9 @@ export function registerRoutes(app: FastifyInstance): void {
 
       const { phone, otp } = parsed.data;
 
+      // Check brute-force protection
+      await checkOtpAttempts(phone);
+
       const otpRecord = await prisma.otpCode.findFirst({
         where: {
           phone,
@@ -129,6 +152,9 @@ export function registerRoutes(app: FastifyInstance): void {
         data: { used: true },
       });
 
+      // Clear brute-force counter on success
+      await clearOtpAttempts(phone);
+
       // Upsert user
       const existingUser = await prisma.user.findUnique({ where: { phone } });
       const isNewUser = !existingUser;
@@ -143,6 +169,9 @@ export function registerRoutes(app: FastifyInstance): void {
       const tokenPayload = { userId: user.id, phone: user.phone, role: user.role };
       const accessToken = generateAccessToken(tokenPayload);
       const refreshToken = generateRefreshToken(tokenPayload);
+
+      // Store refresh token for rotation
+      await redis.set(`auth:refresh:${user.id}`, refreshToken, 'EX', 30 * 24 * 60 * 60);
 
       // Publish event if new user
       if (isNewUser) {
@@ -194,6 +223,14 @@ export function registerRoutes(app: FastifyInstance): void {
         return reply.code(statusCode).send(body);
       }
 
+      // Check if refresh token has been revoked
+      const tokenKey = `auth:refresh:${payload.userId}`;
+      const storedToken = await redis.get(tokenKey);
+      if (!storedToken || storedToken !== refreshToken) {
+        const { statusCode, body } = handleError(new UnauthorizedError('Refresh token revoked'));
+        return reply.code(statusCode).send(body);
+      }
+
       const user = await prisma.user.findUnique({ where: { id: payload.userId } });
       if (!user) {
         const { statusCode, body } = handleError(new UnauthorizedError('User not found'));
@@ -202,10 +239,14 @@ export function registerRoutes(app: FastifyInstance): void {
 
       const tokenPayload = { userId: user.id, phone: user.phone, role: user.role };
       const accessToken = generateAccessToken(tokenPayload);
+      const newRefreshToken = generateRefreshToken(tokenPayload);
+
+      // Rotate: store new refresh token, revoking old one
+      await redis.set(`auth:refresh:${user.id}`, newRefreshToken, 'EX', 30 * 24 * 60 * 60);
 
       return reply.send({
         success: true,
-        data: { accessToken },
+        data: { accessToken, refreshToken: newRefreshToken },
       });
     } catch (err) {
       logger.error({ err }, 'Failed to refresh token');

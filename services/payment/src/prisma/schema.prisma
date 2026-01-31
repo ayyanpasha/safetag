@@ -1,11 +1,13 @@
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["payment"]
 }
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../../generated/prisma"
+  previewFeatures = ["multiSchema"]
 }
 
 enum PlanType {
@@ -13,6 +15,8 @@ enum PlanType {
   QUARTERLY
   SEMI_ANNUAL
   YEARLY
+
+  @@schema("payment")
 }
 
 enum SubStatus {
@@ -20,6 +24,8 @@ enum SubStatus {
   PAST_DUE
   CANCELED
   TRIALING
+
+  @@schema("payment")
 }
 
 model Subscription {
@@ -38,6 +44,7 @@ model Subscription {
   payments Payment[]
 
   @@map("subscriptions")
+  @@schema("payment")
 }
 
 model Payment {
@@ -53,4 +60,5 @@ model Payment {
   subscription Subscription @relation(fields: [subscriptionId], references: [id])
 
   @@map("payments")
+  @@schema("payment")
 }

@@ -19,6 +19,18 @@ const prisma = new PrismaClient();
 const VEHICLE_SERVICE_URL = process.env.VEHICLE_SERVICE_URL || 'http://localhost:3002';
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
 
+if (process.env.NODE_ENV === 'production' && !process.env.INTERNAL_API_KEY) {
+  throw new Error('INTERNAL_API_KEY must be set in production');
+}
+
+async function internalAuthPreHandler(request: FastifyRequest, reply: FastifyReply) {
+  const apiKey = request.headers['x-internal-api-key'] as string | undefined;
+  if (!apiKey || apiKey !== INTERNAL_API_KEY) {
+    const { statusCode, body } = handleError(new ForbiddenError('Invalid internal API key'));
+    return reply.status(statusCode).send(body);
+  }
+}
+
 // ─── Schemas ────────────────────────────────────────────
 
 const ScanInitiateSchema = z.object({
@@ -58,21 +70,28 @@ async function fetchVehicleByShortCode(shortCode: string) {
   }
 
   const body = (await res.json()) as ApiResponse<{
-    id: string;
+    vehicle: {
+      id: string;
+      userId: string;
+      vehicleNumber: string;
+      ownerName?: string;
+    };
     userId: string;
-    vehicleNumber: string;
-    ownerName?: string;
   }>;
 
-  if (!body.success || !body.data) {
+  if (!body.success || !body.data?.vehicle) {
     throw new NotFoundError('Vehicle');
   }
 
-  return body.data;
+  return body.data.vehicle;
+}
+
+function sanitizeFingerprint(fp: string): string {
+  return fp.replace(/[:\*\?\[\]\s]/g, '').slice(0, 100);
 }
 
 async function checkRateLimit(fingerprint: string): Promise<void> {
-  const key = `sheriff:rate:${fingerprint}`;
+  const key = `sheriff:rate:${sanitizeFingerprint(fingerprint)}`;
   const count = await redis.incr(key);
   if (count === 1) {
     await redis.expire(key, 600); // 10 minutes TTL
@@ -201,7 +220,7 @@ export function registerRoutes(app: FastifyInstance) {
   });
 
   // POST /internal/scan/blocklist
-  app.post('/internal/scan/blocklist', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/internal/scan/blocklist', { preHandler: internalAuthPreHandler }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const body = BlocklistSchema.parse(request.body);
 

@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../../generated/prisma"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["vehicle"]
 }
 
 model Vehicle {
@@ -24,6 +26,7 @@ model Vehicle {
   checkIns CheckIn[]
 
   @@map("vehicles")
+  @@schema("vehicle")
 }
 
 model CheckIn {
@@ -35,4 +38,5 @@ model CheckIn {
   vehicle Vehicle @relation(fields: [vehicleId], references: [id])
 
   @@map("check_ins")
+  @@schema("vehicle")
 }

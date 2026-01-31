@@ -1,17 +1,21 @@
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["auth"]
 }
 
 generator client {
-  provider = "prisma-client-js"
-  output   = "../../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../../generated/prisma"
+  previewFeatures = ["multiSchema"]
 }
 
 enum UserRole {
   OWNER
   DEALER
   ADMIN
+
+  @@schema("auth")
 }
 
 model User {
@@ -28,6 +32,7 @@ model User {
   updatedAt        DateTime @updatedAt
 
   @@map("users")
+  @@schema("auth")
 }
 
 model OtpCode {
@@ -39,4 +44,5 @@ model OtpCode {
   createdAt DateTime @default(now())
 
   @@map("otp_codes")
+  @@schema("auth")
 }

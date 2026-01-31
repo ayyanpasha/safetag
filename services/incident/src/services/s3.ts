@@ -16,15 +16,40 @@ const s3 = new S3Client({
   forcePathStyle: true,
 });
 
+const ALLOWED_CONTENT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/\.\./g, '')
+    .replace(/[\/\\]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 100);
+}
+
 export async function uploadPhoto(buffer: Buffer, filename: string): Promise<string> {
-  const key = `incidents/${Date.now()}-${filename}`;
+  // Validate file size
+  if (buffer.length > MAX_FILE_SIZE) {
+    throw new Error('File size exceeds 5MB limit');
+  }
+
+  // Sanitize filename
+  const safeFilename = sanitizeFilename(filename);
+
+  // Validate content type
+  const contentType = getContentType(safeFilename);
+  if (!ALLOWED_CONTENT_TYPES.includes(contentType)) {
+    throw new Error('Invalid file type. Only JPEG, PNG, and WebP are allowed.');
+  }
+
+  const key = `incidents/${Date.now()}-${safeFilename}`;
 
   await s3.send(
     new PutObjectCommand({
       Bucket: S3_BUCKET,
       Key: key,
       Body: buffer,
-      ContentType: getContentType(filename),
+      ContentType: contentType,
     }),
   );
 

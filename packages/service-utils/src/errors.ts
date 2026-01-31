@@ -40,6 +40,13 @@ export function handleError(err: unknown): { statusCode: number; body: object } 
       body: { success: false, error: err.message, code: err.code },
     };
   }
+  // In production, never leak internal error details
+  if (process.env.NODE_ENV === 'production') {
+    return {
+      statusCode: 500,
+      body: { success: false, error: 'Internal server error' },
+    };
+  }
   const message = err instanceof Error ? err.message : 'Internal server error';
   return {
     statusCode: 500,

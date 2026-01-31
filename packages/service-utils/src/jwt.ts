@@ -23,6 +23,19 @@ function getPublicKey(): string {
   }
 }
 
+// Fail fast in production if no keys are configured
+if (process.env.NODE_ENV === 'production') {
+  try {
+    const key = getPrivateKey();
+    if (key === 'dev-secret-change-me') {
+      throw new Error('JWT_SECRET or JWT key files must be configured in production');
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('must be configured')) throw err;
+    throw new Error('JWT_SECRET or JWT key files must be configured in production');
+  }
+}
+
 const isRSA = () => {
   try {
     const key = getPrivateKey();

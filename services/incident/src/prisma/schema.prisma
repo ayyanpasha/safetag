@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
-  output   = "../../generated/prisma"
+  provider        = "prisma-client-js"
+  output          = "../../generated/prisma"
+  previewFeatures = ["multiSchema"]
 }
 
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["incident"]
 }
 
 enum EmergencyType {
@@ -15,12 +17,16 @@ enum EmergencyType {
   VANDALISM
   FIRE
   OTHER
+
+  @@schema("incident")
 }
 
 enum IncidentStatus {
   OPEN
   ACKNOWLEDGED
   RESOLVED
+
+  @@schema("incident")
 }
 
 model Incident {
@@ -37,4 +43,5 @@ model Incident {
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
   @@map("incidents")
+  @@schema("incident")
 }

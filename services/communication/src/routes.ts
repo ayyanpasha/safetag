@@ -5,6 +5,7 @@ import {
   handleError,
   ValidationError,
   UnauthorizedError,
+  ForbiddenError,
   decryptSessionToken,
 } from '@safetag/service-utils';
 import { z } from 'zod';
@@ -18,6 +19,18 @@ const AUTH_SERVICE_URL = process.env.AUTH_SERVICE_URL || 'http://localhost:3001'
 const TURN_SERVER_URL = process.env.TURN_SERVER_URL || 'turn:turn.safetag.local:3478';
 const TURN_USERNAME = process.env.TURN_USERNAME || 'safetag';
 const TURN_CREDENTIAL = process.env.TURN_CREDENTIAL || 'safetag-credential';
+
+// ─── Auth PreHandler ──────────────────────────────────────
+async function authPreHandler(request: FastifyRequest, reply: FastifyReply) {
+  const userId = request.headers['x-user-id'] as string | undefined;
+  const userRole = request.headers['x-user-role'] as string | undefined;
+  if (!userId || !userRole) {
+    const { statusCode, body } = handleError(new UnauthorizedError('Missing authentication headers'));
+    return reply.code(statusCode).send(body);
+  }
+  (request as any).userId = userId;
+  (request as any).userRole = userRole;
+}
 
 // ─── Schemas ─────────────────────────────────────────────
 
@@ -224,17 +237,43 @@ export function registerRoutes(app: FastifyInstance): void {
     }
   });
 
-  // WebSocket /api/contact/voip/signal — WebRTC signaling relay
+  // WebSocket /api/contact/voip/signal — WebRTC signaling relay (auth required)
   app.get('/api/contact/voip/signal', { websocket: true }, (socket, request) => {
     logger.info('WebSocket connection established for VoIP signaling');
 
     const connections = (app as any).__voipConnections ||= new Map<string, Set<any>>();
 
     let conversationId: string | null = null;
+    let authenticated = false;
+
+    // Require auth as first message
+    const authTimeout = setTimeout(() => {
+      if (!authenticated) {
+        socket.close(1008, 'Authentication timeout');
+      }
+    }, 10_000);
 
     socket.on('message', (raw: Buffer) => {
       try {
         const data = JSON.parse(raw.toString());
+
+        // First message must be auth
+        if (!authenticated) {
+          if (data.type === 'auth' && data.sessionToken) {
+            try {
+              decryptSessionToken(data.sessionToken);
+              authenticated = true;
+              clearTimeout(authTimeout);
+              socket.send(JSON.stringify({ type: 'auth', success: true }));
+              return;
+            } catch {
+              socket.close(1008, 'Invalid session token');
+              return;
+            }
+          }
+          socket.close(1008, 'First message must be auth');
+          return;
+        }
 
         if (data.type === 'join' && data.conversationId) {
           conversationId = data.conversationId;
@@ -260,6 +299,7 @@ export function registerRoutes(app: FastifyInstance): void {
     });
 
     socket.on('close', () => {
+      clearTimeout(authTimeout);
       if (conversationId && connections.has(conversationId)) {
         connections.get(conversationId)!.delete(socket);
         if (connections.get(conversationId)!.size === 0) {
@@ -270,10 +310,15 @@ export function registerRoutes(app: FastifyInstance): void {
     });
   });
 
-  // GET /api/contact/conversations/:ownerId — internal: list conversations for owner
-  app.get('/api/contact/conversations/:ownerId', async (request: FastifyRequest, reply: FastifyReply) => {
+  // GET /api/contact/conversations/:ownerId — list conversations for owner (auth required)
+  app.get('/api/contact/conversations/:ownerId', { preHandler: authPreHandler }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { ownerId } = request.params as { ownerId: string };
+      const userId = (request as any).userId as string;
+      if (userId !== ownerId) {
+        const { statusCode, body } = handleError(new ForbiddenError('Access denied'));
+        return reply.code(statusCode).send(body);
+      }
 
       const conversations = await prisma.conversation.findMany({
         where: { ownerId },

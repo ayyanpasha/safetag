@@ -4,6 +4,7 @@ import {
   createLogger,
   handleError,
   NotFoundError,
+  ForbiddenError,
   ValidationError,
   publishEvent,
 } from '@safetag/service-utils';
@@ -17,6 +18,20 @@ import { createSubscription, verifyWebhookSignature } from './services/razorpay.
 
 const prisma = new PrismaClient();
 const logger = createLogger('payment-routes');
+
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+if (process.env.NODE_ENV === 'production' && !process.env.INTERNAL_API_KEY) {
+  throw new Error('INTERNAL_API_KEY must be set in production');
+}
+
+async function internalAuthPreHandler(request: FastifyRequest, reply: FastifyReply) {
+  const apiKey = request.headers['x-internal-api-key'] as string | undefined;
+  if (!apiKey || apiKey !== INTERNAL_API_KEY) {
+    const { statusCode, body } = handleError(new ForbiddenError('Invalid internal API key'));
+    return reply.code(statusCode).send(body);
+  }
+}
 
 // ─── Schemas ──────────────────────────────────────────────
 
@@ -283,7 +298,7 @@ export function registerRoutes(app: FastifyInstance): void {
   // ─── Internal Routes ────────────────────────────────────
 
   // GET /internal/payments/subscription/:userId
-  app.get('/internal/payments/subscription/:userId', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/internal/payments/subscription/:userId', { preHandler: internalAuthPreHandler }, async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { userId } = request.params as { userId: string };
 

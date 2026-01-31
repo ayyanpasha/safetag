@@ -13,9 +13,11 @@
   "devDependencies": {
     "@prisma/client": "^6.2.0",
     "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^4.0.18",
     "prisma": "^6.2.0",
     "turbo": "^2.3.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^4.0.18"
   },
   "packageManager": "pnpm@9.15.0"
 }

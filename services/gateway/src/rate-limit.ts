@@ -18,17 +18,25 @@ export async function registerRateLimiting(app: FastifyInstance): Promise<void> 
     },
   });
 
-  // Stricter rate limit for scan endpoints
+  // Per-route rate limits
   app.after(() => {
     app.addHook('onRoute', (routeOptions) => {
-      if (routeOptions.url.startsWith('/api/scan')) {
-        const existingConfig = routeOptions.config || {};
+      const existingConfig = routeOptions.config || {};
+
+      if (routeOptions.url === '/api/auth/otp/send') {
         routeOptions.config = {
           ...existingConfig,
-          rateLimit: {
-            max: 20,
-            timeWindow: '1 minute',
-          },
+          rateLimit: { max: 5, timeWindow: '1 minute' },
+        };
+      } else if (routeOptions.url === '/api/auth/otp/verify') {
+        routeOptions.config = {
+          ...existingConfig,
+          rateLimit: { max: 10, timeWindow: '1 minute' },
+        };
+      } else if (routeOptions.url.startsWith('/api/scan')) {
+        routeOptions.config = {
+          ...existingConfig,
+          rateLimit: { max: 20, timeWindow: '1 minute' },
         };
       }
     });

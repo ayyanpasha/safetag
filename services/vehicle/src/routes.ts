@@ -7,6 +7,7 @@ import {
   ForbiddenError,
   ValidationError,
   handleError,
+  decryptSessionToken,
 } from '@safetag/service-utils';
 import {
   CreateVehicleSchema,
@@ -19,6 +20,10 @@ const prisma = new PrismaClient();
 const nanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', 5);
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || 'internal-secret';
+
+if (process.env.NODE_ENV === 'production' && !process.env.INTERNAL_API_KEY) {
+  throw new Error('INTERNAL_API_KEY must be set in production');
+}
 
 // ─── Auth preHandler ────────────────────────────────────
 
@@ -269,12 +274,27 @@ export function registerRoutes(app: FastifyInstance) {
     },
   );
 
-  // POST /api/vehicles/:id/checkin — log a check-in with GPS location
+  // POST /api/vehicles/:id/checkin — log a check-in with GPS location (session token required)
   app.post<{ Params: { id: string } }>(
     '/api/vehicles/:id/checkin',
     async (request, reply) => {
       try {
         const { id } = request.params;
+
+        // Validate session token
+        const sessionTokenHeader = request.headers['x-session-token'] as string | undefined;
+        if (!sessionTokenHeader) {
+          throw new UnauthorizedError('Missing session token');
+        }
+        let sessionPayload: { vehicleId?: string };
+        try {
+          sessionPayload = decryptSessionToken<{ vehicleId?: string }>(sessionTokenHeader);
+        } catch {
+          throw new UnauthorizedError('Invalid session token');
+        }
+        if (sessionPayload.vehicleId !== id) {
+          throw new ForbiddenError('Session token does not match vehicle');
+        }
 
         const parsed = LocationSchema.safeParse(request.body);
         if (!parsed.success) {

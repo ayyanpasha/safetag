@@ -16,7 +16,7 @@ async function main() {
 
   // Register CORS
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN || true,
+    origin: process.env.CORS_ORIGIN?.split(',') || (process.env.NODE_ENV === 'production' ? false : true),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Token'],

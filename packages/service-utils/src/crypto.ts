@@ -9,6 +9,10 @@ function getKey(): Buffer {
   return crypto.createHash('sha256').update(secret).digest();
 }
 
+if (process.env.NODE_ENV === 'production' && !process.env.SESSION_ENCRYPTION_KEY) {
+  throw new Error('SESSION_ENCRYPTION_KEY must be set in production');
+}
+
 export function encryptSessionToken(payload: object): string {
   const key = getKey();
   const iv = crypto.randomBytes(IV_LENGTH);
