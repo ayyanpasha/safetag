@@ -32,10 +32,10 @@ describe('contact API', () => {
     });
   });
 
-  it('sendVoipOtp sends sessionToken', async () => {
+  it('sendVoipOtp sends sessionToken and phone', async () => {
     (api.post as any).mockResolvedValue({ success: true });
-    await sendVoipOtp('tok-123');
-    expect(api.post).toHaveBeenCalledWith('/api/contact/voip/otp', { sessionToken: 'tok-123' });
+    await sendVoipOtp('tok-123', '9876543210');
+    expect(api.post).toHaveBeenCalledWith('/api/contact/voip/otp', { sessionToken: 'tok-123', phone: '9876543210' });
   });
 
   it('reportEmergency uses upload', async () => {
