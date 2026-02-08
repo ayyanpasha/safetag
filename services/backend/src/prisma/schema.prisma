@@ -1,0 +1,439 @@
+// Unified Prisma Schema - Merged from all service schemas
+// This schema uses the default public schema (no multiSchema)
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../generated/prisma"
+}
+
+// ============================================================================
+// ENUMS
+// ============================================================================
+
+// Auth Enums
+enum UserRole {
+  OWNER
+  DEALER
+  ADMIN
+}
+
+// Communication Enums
+enum Channel {
+  WHATSAPP
+  VOIP
+  EMERGENCY
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+// Payment Enums
+enum PlanType {
+  MONTHLY
+  QUARTERLY
+  SEMI_ANNUAL
+  YEARLY
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+// Affiliate Enums
+enum ReferralStatus {
+  PENDING
+  PAID
+  CANCELED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// Incident Enums
+enum EmergencyType {
+  ACCIDENT
+  CAR_CRASH
+  THEFT
+  VANDALISM
+  FIRE
+  OTHER
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+// ============================================================================
+// AUTH MODELS
+// ============================================================================
+
+model User {
+  id               String   @id @default(uuid()) @db.Uuid
+  phone            String   @unique
+  name             String?
+  email            String?
+  role             UserRole @default(OWNER)
+  emergencyContact String?
+  dndEnabled       Boolean  @default(false)
+  dndStart         String?
+  dndEnd           String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  vehicles      Vehicle[]
+  subscription  Subscription?
+  dealer        Dealer?
+  dndConfig     DndConfig?
+  conversations Conversation[]
+  queuedMessages QueuedMessage[]
+  incidents     Incident[]      @relation("OwnerIncidents")
+
+  @@index([phone])
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+model OtpCode {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+// ============================================================================
+// VEHICLE MODELS
+// ============================================================================
+
+model Vehicle {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  vehicleNumber String   @unique @map("vehicle_number")
+  make          String?
+  model         String?
+  color         String?
+  qrCode        String   @unique @default(uuid()) @map("qr_code")
+  qrShortCode   String   @unique @map("qr_short_code")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkIns     CheckIn[]
+  scanSessions ScanSession[]
+  incidents    Incident[]
+
+  @@index([userId])
+  @@index([vehicleNumber])
+  @@index([qrCode])
+  @@index([qrShortCode])
+  @@index([isActive])
+  @@map("vehicles")
+}
+
+model CheckIn {
+  id        String   @id @default(uuid()) @db.Uuid
+  vehicleId String   @map("vehicle_id") @db.Uuid
+  location  Json
+  scannedAt DateTime @default(now()) @map("scanned_at")
+
+  // Relations
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([scannedAt])
+  @@map("check_ins")
+}
+
+// ============================================================================
+// SHERIFF MODELS
+// ============================================================================
+
+model ScanSession {
+  id                 String   @id @default(uuid()) @db.Uuid
+  vehicleId          String   @db.Uuid
+  vehicleNumber      String
+  scannerFingerprint String
+  scannerIp          String
+  latitude           Float
+  longitude          Float
+  sessionToken       String   @unique
+  expiresAt          DateTime
+  createdAt          DateTime @default(now())
+
+  // Relations
+  vehicle       Vehicle        @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+
+  @@index([vehicleId])
+  @@index([sessionToken])
+  @@index([expiresAt])
+  @@index([scannerFingerprint])
+  @@map("scan_sessions")
+}
+
+model Blocklist {
+  id          String   @id @default(uuid()) @db.Uuid
+  fingerprint String   @unique
+  reason      String
+  createdAt   DateTime @default(now())
+
+  @@index([fingerprint])
+  @@map("blocklists")
+}
+
+// ============================================================================
+// COMMUNICATION MODELS
+// ============================================================================
+
+model Conversation {
+  id               String   @id @default(uuid()) @db.Uuid
+  ownerId          String   @db.Uuid
+  scannerSessionId String   @db.Uuid
+  channel          Channel
+  createdAt        DateTime @default(now())
+
+  // Relations
+  owner        User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  scanSession  ScanSession @relation(fields: [scannerSessionId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@index([ownerId])
+  @@index([scannerSessionId])
+  @@index([channel])
+  @@map("conversations")
+}
+
+model Message {
+  id             String           @id @default(uuid()) @db.Uuid
+  conversationId String           @db.Uuid
+  direction      MessageDirection
+  content        String
+  metadata       Json?
+  sentAt         DateTime         @default(now())
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([sentAt])
+  @@map("messages")
+}
+
+model DndConfig {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @unique @db.Uuid
+  enabled   Boolean @default(false)
+  startTime String  @default("22:00")
+  endTime   String  @default("07:00")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([enabled])
+  @@map("dnd_configs")
+}
+
+model QueuedMessage {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  content      String
+  channel      String
+  metadata     Json?
+  scheduledFor DateTime
+  sent         Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([scheduledFor])
+  @@index([sent])
+  @@map("queued_messages")
+}
+
+// ============================================================================
+// PAYMENT MODELS
+// ============================================================================
+
+model Subscription {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String    @unique @db.Uuid
+  plan               PlanType
+  status             SubStatus @default(TRIALING)
+  razorpaySubId      String?   @unique
+  razorpayCustomerId String?
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  vehicleLimit       Int       @default(1)
+  additionalVehicles Int       @default(0) @map("additional_vehicles")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments           Payment[]
+  referrals          Referral[]
+  vehiclePurchases   VehiclePurchase[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+// Track individual vehicle slot purchases
+model VehiclePurchase {
+  id               String   @id @default(uuid()) @db.Uuid
+  subscriptionId   String   @map("subscription_id") @db.Uuid
+  razorpayPaymentId String? @unique @map("razorpay_payment_id")
+  razorpayOrderId  String?  @map("razorpay_order_id")
+  amount           Int
+  currency         String   @default("INR")
+  status           String   @default("pending")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([status])
+  @@map("vehicle_purchases")
+}
+
+model Payment {
+  id                String   @id @default(uuid()) @db.Uuid
+  subscriptionId    String   @db.Uuid
+  razorpayPaymentId String   @unique
+  razorpayOrderId   String
+  amount            Int
+  currency          String   @default("INR")
+  status            String
+  createdAt         DateTime @default(now())
+
+  // Relations
+  subscription Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+  @@index([razorpayPaymentId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ============================================================================
+// AFFILIATE MODELS
+// ============================================================================
+
+model Dealer {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @unique @db.Uuid
+  dealerCode   String     @unique
+  businessName String
+  isApproved   Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Relations
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referrals Referral[]
+  payouts   Payout[]
+
+  @@index([userId])
+  @@index([dealerCode])
+  @@index([isApproved])
+  @@map("dealers")
+}
+
+model Referral {
+  id                String         @id @default(uuid()) @db.Uuid
+  dealerId          String         @db.Uuid
+  referredUserId    String         @db.Uuid
+  subscriptionId    String?        @db.Uuid
+  commissionPercent Float
+  commissionAmount  Int            @default(0)
+  paymentNumber     Int            @default(1)
+  status            ReferralStatus @default(PENDING)
+  createdAt         DateTime       @default(now())
+
+  // Relations
+  dealer       Dealer        @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([dealerId])
+  @@index([referredUserId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@map("referrals")
+}
+
+model Payout {
+  id          String       @id @default(uuid()) @db.Uuid
+  dealerId    String       @db.Uuid
+  amount      Int
+  status      PayoutStatus @default(PENDING)
+  processedAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  // Relations
+  dealer Dealer @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+
+  @@index([dealerId])
+  @@index([status])
+  @@index([processedAt])
+  @@map("payouts")
+}
+
+// ============================================================================
+// INCIDENT MODELS
+// ============================================================================
+
+model Incident {
+  id            String         @id @default(uuid()) @db.Uuid
+  vehicleId     String         @map("vehicle_id") @db.Uuid
+  ownerId       String         @map("owner_id") @db.Uuid
+  scannerPhone  String         @map("scanner_phone")
+  emergencyType EmergencyType  @map("emergency_type")
+  photoUrl      String?        @map("photo_url")
+  latitude      Float
+  longitude     Float
+  status        IncidentStatus @default(OPEN)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  owner   User    @relation("OwnerIncidents", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([emergencyType])
+  @@index([createdAt])
+  @@map("incidents")
+}
